@@ -1,41 +1,81 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 
 # Konfiguracja strony
 st.set_page_config(page_title="Kalkulator Procentu Składanego", layout="centered")
+
 st.title("📈 Kalkulator Procentu Składanego")
-st.write("Zobacz, jak Twój kapitał rośnie w czasie dzięki magii procentu składanego.")
+st.write("Zobacz moc procentu składanego i nakładające się linie zysku oraz dopłat.")
 
-# Panel boczny z suwakami (dane wejściowe)
-st.sidebar.header("Ustawienia symulacji")
-kwota_startowa = st.sidebar.number_input("Kwota początkowa (PLN)", min_value=0.0, value=22947.21, step=500.0)
-wplata_miesieczna = st.sidebar.number_input("Miesięczna dopłata (PLN)", min_value=0.0, value=0.0, step=50.0)
-lata = st.sidebar.slider("Okres inwestycji (lata)", min_value=1, max_value=40, value=5)
-stopa_zwrotu = st.sidebar.slider("Średnioroczna stopa zwrotu (%)", min_value=0.0, max_value=30.0, value=11.0, step=0.5)
+# --- INICJALIZACJA PARAMETRÓW DOMYŚLNYCH ---
+# Wartości startowe (będą nadpisywane przez slidery pod wykresem)
+kwota_startowa_val = 22947.21
+wplata_miesieczna_val = 0.0
+lata_val = 5
+stopa_zwrotu_val = 11.0
 
-# Obliczenia rok po roku
-kapital = kwota_startowa
+# Tworzymy kontenery, aby wymusić kolejność wyświetlania elementów na stronie
+miejsce_na_wykres = st.container()
+st.markdown("---")
+miejsce_na_suwaki = st.container()
+
+# --- PANEL Z SUWAKAMI (WYŚWIETLANY POD WYKRESEM) ---
+with miejsce_na_suwaki:
+    st.subheader("⚙️ Ustawienia inwestycji")
+    
+    # Blokada wartości ujemnych przez min_value=0.0
+    kwota_startowa = st.number_input("Kwota początkowa (PLN)", min_value=0.0, value=kwota_startowa_val, step=500.0)
+    wplata_miesieczna = st.number_input("Miesięczna dopłata (PLN)", min_value=0.0, value=wplata_miesieczna_val, step=50.0)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        lata = st.slider("Okres inwestycji (lata)", min_value=1, max_value=40, value=lata_val)
+    with col2:
+        stopa_zwrotu = st.slider("Średnioroczna stopa zwrotu (%)", min_value=0.0, max_value=30.0, value=stopa_zwrotu_val, step=0.5)
+
+# --- OBLICZENIA ROK PO ROKU ---
+kapital_total = kwota_startowa
+suma_doplat = kwota_startowa
 dane_wykresu = []
 
-for rok in range(0, lata + 1):
-    if rok > 0:
-        # Dodanie wpłat miesięcznych w ciągu roku i naliczenie stopy zwrotu
-        # Dla uproszczenia: kapitalizacja roczna
-        suma_wplat_w_roku = wplata_miesieczna * 12
-        kapital = (kapital + suma_wplat_w_roku) * (1 + stopa_zwrotu / 100)
+# Rok 0 (stan początkowy)
+dane_wykresu.append({
+    "Rok": 0, 
+    "Suma dopłat (Twój wkład)": round(suma_doplat, 2),
+    "Wartość portfela (Zysk + Wkład)": round(kapital_total, 2)
+})
+
+for rok in range(1, lata + 1):
+    suma_wplat_w_roku = wplata_miesieczna * 12
+    suma_doplat += suma_wplat_w_roku
     
-    dane_wykresu.append({"Rok": rok, "Wartość portfela": round(kapital, 2)})
+    # Naliczenie stopy zwrotu na koniec roku (kapitalizacja roczna)
+    kapital_total = (kapital_total + suma_wplat_w_roku) * (1 + stopa_zwrotu / 100)
+    
+    dane_wykresu.append({
+        "Rok": rok, 
+        "Suma dopłat (Twój wkład)": round(suma_doplat, 2),
+        "Wartość portfela (Zysk + Wkład)": round(kapital_total, 2)
+    })
 
-df = pd.DataFrame(dane_wykresu)
+df = pd.DataFrame(dane_wykresu).set_index("Rok")
 
-# Wyświetlenie wyników głównych
-st.metric(label=f"Wartość portfela za {lata} lat(a)", value=f"{df.iloc[-1]['Wartość portfela']:,} PLN")
+# --- GENEROWANIE WYNIKÓW (WYŚWIETLANE NA SAMEJ GÓRZE STRONY) ---
+with miejsce_na_wykres:
+    st.subheader("📊 Wynik symulacji")
+    
+    c1, c2 = st.columns(2)
+    czysty_zysk = kapital_total - suma_doplat
+    
+    with c1:
+        st.metric(label=f"Wartość portfela za {lata} lat(a)", value=f"{round(kapital_total, 2):,} PLN")
+    with c2:
+        st.metric(label="Wypracowany czysty zysk", value=f"{round(czysty_zysk, 2):,} PLN", delta=f"{round((czysty_zysk/suma_doplat)*100, 1)}% względem wkładu")
+    
+    # Wykres liniowy z dwoma nakładającymi się liniami
+    # Streamlit automatycznie dopasuje osie od 0 (brak wartości ujemnych z racji min_value)
+    st.line_chart(df, y=["Suma dopłat (Twój wkład)", "Wartość portfela (Zysk + Wkład)"], color=["#FF4B4B", "#00F0FF"])
 
-# Wykres
-st.subheader("Wizualizacja wzrostu kapitału")
-st.line_chart(df.set_index("Rok"))
-
-# Tabela z danymi
-if st.checkbox("Pokaż szczegółowe dane rok po roku"):
-    st.dataframe(df)
+    # Opcjonalna tabela
+    if st.checkbox("Pokaż szczegółowe dane liczbowe rok po roku"):
+        st.dataframe(df)
